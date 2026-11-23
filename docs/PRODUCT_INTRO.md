@@ -1,5 +1,7 @@
 # Micro-Planet Bioscience：产品介绍
 
+> 图文在线版（含同样的对比表）：<https://claude.ai/artifact/MHsaY93dWC9tznrs6CQoao>
+
 **一句话：** 一个在你自己电脑上运行的生物医学研究助手。你用自然语言提问，智能体先列出计划，再检索文献和数据库、运行分析代码，最后给出答案，并标明它实际读取过的来源。
 
 ![首页](images/01-home.png)

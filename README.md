@@ -10,7 +10,7 @@
 - **98 skills and about 225 tools.** Step-by-step manuals for common analyses, and bundled tools for databases, literature and analysis.
 - **Your data stays with you.** Conversations, results and keys are stored on your computer.
 
-**Product introduction and comparison with open-source Biomni: [docs/PRODUCT_INTRO.md](docs/PRODUCT_INTRO.md)** · **Illustrated guide: [docs/GUIDE.md](docs/GUIDE.md)** · Skills: [docs/SKILLS.md](docs/SKILLS.md) · Tools: [docs/TOOLS.md](docs/TOOLS.md)
+**Product page (illustrated, with the comparison with open-source Biomni): https://claude.ai/artifact/MHsaY93dWC9tznrs6CQoao** · text version: [docs/PRODUCT_INTRO.md](docs/PRODUCT_INTRO.md) · **Illustrated guide: [docs/GUIDE.md](docs/GUIDE.md)** · Skills: [docs/SKILLS.md](docs/SKILLS.md) · Tools: [docs/TOOLS.md](docs/TOOLS.md)
 
 ---
 
