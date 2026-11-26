@@ -30,7 +30,6 @@ Biomni 开源项目：<https://github.com/snap-stanford/Biomni>，论文：<http
 |---|---|
 | ![计划审阅](images/03-plan-review.png) | ![回答](images/04-answer.png) |
 
-![设置：模型与服务商](images/09-settings.png)
 
 系统结构见 [architecture](images/architecture.svg)。
 

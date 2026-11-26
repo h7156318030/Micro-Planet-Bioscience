@@ -316,6 +316,11 @@ class Manager:
                 self._affinity[task.conversation_id] = slot
                 slot.run(task)
 
+    def reset_agent(self) -> None:
+        """Build the agent again on the next use (after a model has been set up)."""
+        with self._agent_lock:
+            self._agent = None
+
     def agent(self):
         with self._agent_lock:
             if self._agent is None:

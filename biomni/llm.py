@@ -8,6 +8,7 @@ if TYPE_CHECKING:
 
 SourceType = Literal["OpenAI", "AzureOpenAI", "Anthropic", "Ollama", "Gemini", "Bedrock", "Groq", "Custom", "Codex"]
 ALLOWED_SOURCES: set[str] = set(SourceType.__args__)
+KEYLESS = "__keyless__"  # api_key value of a provider that needs no account: no Authorization header is sent
 
 
 def get_llm(
@@ -259,6 +260,22 @@ def get_llm(
             )
         # Custom LLM serving such as SGLang. Must expose an openai compatible API.
         assert base_url is not None, "base_url must be provided for customly served LLMs"
+        extra: dict = {}
+        if api_key == KEYLESS:
+            # A provider that works without an account (see biomni_ui/providers.py): the OpenAI client always sends a bearer value, and such a service rejects a made-up one,
+            # so the header is taken off every request.
+            import httpx
+
+            def _no_auth(request: "httpx.Request") -> None:
+                request.headers.pop("authorization", None)
+
+            async def _no_auth_async(request: "httpx.Request") -> None:
+                request.headers.pop("authorization", None)
+
+            extra = {
+                "http_client": httpx.Client(event_hooks={"request": [_no_auth]}, timeout=600),
+                "http_async_client": httpx.AsyncClient(event_hooks={"request": [_no_auth_async]}, timeout=600),
+            }
         llm = ChatOpenAI(
             model=model,
             temperature=temperature,
@@ -266,6 +283,7 @@ def get_llm(
             stop_sequences=stop_sequences,
             base_url=base_url,
             api_key=api_key,
+            **extra,
         )
         return llm
 

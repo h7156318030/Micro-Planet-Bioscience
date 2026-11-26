@@ -16,39 +16,27 @@ from typing import Any
 EFFORTS = ("medium", "high", "xhigh")  # the levels a user can pick: nothing below the starting tier
 DEFAULT_EFFORT = "high"
 
-BUILTIN: list[dict[str, Any]] = [
-    {"id": "chatgpt-luna", "label": "ChatGPT · gpt-6-luna", "source": "Codex", "model": "gpt-6-luna",
-     "note": "Included with a ChatGPT subscription, no extra charge. Log in once in Settings; requests go straight to the model. Reasoning effort can be adjusted.", "builtin": True},
-    {"id": "or-nemotron-ultra", "label": "Nemotron Ultra (free)", "source": "Custom",
-     "model": "nvidia/nemotron-3-ultra-550b-a55b:free", "note": "OpenRouter free model: fast, average quality", "builtin": True},
-    {"id": "or-deepseek-v32", "label": "DeepSeek V3.2", "source": "Custom", "model": "deepseek/deepseek-v3.2",
-     "note": "OpenRouter paid model: needs account credit", "builtin": True},
-    {"id": "or-kimi-k25", "label": "Kimi K2.5", "source": "Custom", "model": "moonshotai/kimi-k2.5",
-     "note": "OpenRouter paid model: needs account credit", "builtin": True},
-    {"id": "or-qwen3-235b", "label": "Qwen3 235B", "source": "Custom", "model": "qwen/qwen3-235b-a22b-2507",
-     "note": "OpenRouter paid model: needs account credit", "builtin": True},
-    {"id": "or-nemotron-super-vl", "label": "Nemotron Super VL (free)", "source": "Custom",
-     "model": "nvidia/nemotron-3.5-super-vl:free", "note": "OpenRouter free model, not individually verified", "builtin": True},
-]
+BUILTIN: list[dict[str, Any]] = []  # no built-in models: a new install starts with the Kilo free models (scripts/package/seed); the rest are added in Settings
 
-def cost_of(entry: dict[str, Any], local: bool = False) -> str:
+def cost_of(entry: dict[str, Any], local: bool = False, keyless: bool = False) -> str:
     """"member" (ChatGPT membership), "local" (runs on this computer), "free" (OpenRouter :free) or "paid"
     (billed by the provider; any provider whose price we cannot see counts as paid)."""
     if entry.get("source") == "Codex":
         return "member"
     if local:
         return "local"
-    return "free" if str(entry.get("model", "")).endswith(":free") else "paid"
+    return "free" if keyless or str(entry.get("model", "")).endswith(":free") else "paid"
 
 
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/+@-]{1,119}$")
 
 
 class ModelStore:
-    def __init__(self, path: Path, local_providers=lambda: set()):
+    def __init__(self, path: Path, local_providers=lambda: set(), keyless_providers=lambda: set()):
         self.path = path
         self._lock = threading.Lock()
         self._local_providers = local_providers  # ids of providers that run on this computer (free to use)
+        self._keyless_providers = keyless_providers  # ids of providers that work without an account (their free models)
 
     def _custom(self) -> list[dict[str, Any]]:
         try:
@@ -118,9 +106,9 @@ class ModelStore:
 
     def list(self) -> list[dict[str, Any]]:
         rows = [*({**m, "provider": "openrouter"} for m in BUILTIN), *({**m, "source": "Custom", "builtin": False, "provider": m.get("provider") or "openrouter"} for m in self._custom())]
-        hidden, removed, local = set(self._hidden()), set(self.removed()), set(self._local_providers())
+        hidden, removed, local, keyless = set(self._hidden()), set(self.removed()), set(self._local_providers()), set(self._keyless_providers())
         return [
-            {**m, "cost": cost_of(m, m.get("provider") in local), "hidden": m["id"] in hidden}
+            {**m, "cost": cost_of(m, m.get("provider") in local, m.get("provider") in keyless), "hidden": m["id"] in hidden}
             for m in rows
             if m["id"] not in removed
         ]

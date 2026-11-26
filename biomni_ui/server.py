@@ -73,10 +73,21 @@ def _make_agent():
 
     # The official A1 downloads the whole data lake from S3 at start-up unless it is told not to: Micro-Planet Bioscience fetches each dataset
     # from Zenodo when the agent asks for it, so start-up passes an empty list.
-    agent = A1(expected_data_lake_files=[])
+    # A1 builds its own model client at start-up and needs a base address for that. A placeholder on this computer is used
+    # only for that moment (nothing is sent to it); the real model is set just below, and the address is restored at once.
+    cfg = _config()
+    saved_base = cfg.base_url
+    cfg.base_url = saved_base or "http://127.0.0.1:9/v1"
+    try:
+        agent = A1(expected_data_lake_files=[])
+    finally:
+        cfg.base_url = saved_base
     agent_catalog.attach(agent)  # the full dataset catalogue joins the official prompt (the agent class itself is unchanged)
     agent_retrieval.attach(agent)  # the tool-selection step sees the best matches, not the whole registry
-    agent.llm = _build_llm(search=True)  # our own model object: reasoning effort + client-side stop guard, upstream untouched
+    try:
+        agent.llm = _build_llm(search=True)  # our own model object: reasoning effort + client-side stop guard, upstream untouched
+    except (RuntimeError, AssertionError):
+        agent.llm = None  # no usable model yet (for example Kilo not yet agreed): the agent starts, and is built again once one is set up
     research.bind(_build_llm, lambda: _build_llm(effort="medium") if (_active_entry() or {}).get("source") == "Codex" else _build_llm())
     fast_tools.route_tool_llm(lambda: _build_llm(effort="medium") if (_active_entry() or {}).get("source") == "Codex" else _build_llm())
     skills.sync_agent(agent)
@@ -96,7 +107,7 @@ providers = ui_providers.ProviderStore(
     env_base_url=lambda: _config().base_url,
     env_api_key=lambda: _config().api_key,
 )
-models = ModelStore(ROOT / "ui_data" / "models.json", local_providers=providers.local_ids)
+models = ModelStore(ROOT / "ui_data" / "models.json", local_providers=providers.local_ids, keyless_providers=providers.keyless_ids)
 prefs_store = ui_prefs.PrefsStore(ROOT / "ui_data" / "prefs.json")
 catalog = ui_catalog.Catalog()
 resolver = RefResolver(ROOT / "ui_data" / "refs_cache.json")
@@ -573,6 +584,24 @@ def delete_provider(provider_id: str):
     removed = models.delete_provider_models(provider_id)
     _provider_models.pop(provider_id, None)
     return {"ok": True, "models_removed": removed, **_models_view()}
+
+
+class ConsentIn(BaseModel):
+    value: str  # "yes" or "no"
+
+
+@app.post("/api/providers/{provider_id}/consent")
+def set_provider_consent(provider_id: str, body: ConsentIn):
+    """The answer to "use the free models of this service?" (a keyless provider sends what is typed to a third party)."""
+    if body.value not in ("yes", "no"):
+        raise HTTPException(status_code=400, detail="The answer must be yes or no.")
+    try:
+        out = providers.set_consent(provider_id, body.value)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="No such provider.") from None
+    manager.reset_agent()
+    threading.Thread(target=_warm, daemon=True, name="warm-up").start()  # build the agent now that a model is set up
+    return out
 
 
 @app.post("/api/providers/{provider_id}/test")

@@ -18,6 +18,10 @@ from urllib.parse import urlparse
 import requests
 
 BUILTIN_ID = "openrouter"
+KEYLESS = "__keyless__"  # the api_key value the model client reads as "send no Authorization header" (biomni/llm.py)
+# Services that answer without an account or a key (free models, shared limits): only these hosts may be added without a key. What is typed to them goes to a third party, so each
+# carries a note that says so, and none is on unless the person adds it.
+KEYLESS_HOSTS = ("ai-gateway.kilo.ai",)
 
 # Starting points for the "add a provider" form. The address is only a suggestion: "test connection" tells you at once
 # whether it answers and whether your key is accepted.
@@ -36,6 +40,8 @@ PRESETS: list[dict[str, Any]] = [
     {"id": "groq", "name": "Groq", "base_url": "https://api.groq.com/openai/v1", "local": False, "note": "Low-latency open models"},
     {"id": "together", "name": "Together AI", "base_url": "https://api.together.xyz/v1", "local": False, "note": "Aggregator for open models"},
     {"id": "mistral", "name": "Mistral", "base_url": "https://api.mistral.ai/v1", "local": False, "note": "Mistral's official API"},
+    {"id": "kilo", "name": "Kilo Gateway (free models, no account)", "base_url": "https://ai-gateway.kilo.ai/api/v1", "local": False, "keyless": True,
+     "note": "Free models with no account and no key (for example kilo-auto/free). What you write is sent to Kilo and the model's maker: use it for everyday questions, not for unpublished research or patient data. For tasks that use tools pick a named model such as nvidia/nemotron-3-ultra-550b-a55b:free: kilo-auto/free picks a different free model on each call, and some of them are rate-limited or refuse the agent's request."},
     {"id": "ollama", "name": "Ollama (this computer)", "base_url": "http://localhost:11434/v1", "local": True, "note": "Runs on this computer. No key needed, no cost."},
     {"id": "lmstudio", "name": "LM Studio (this computer)", "base_url": "http://localhost:1234/v1", "local": True, "note": "Runs on this computer. No key needed, no cost."},
     {"id": "custom", "name": "Other (enter the address yourself)", "base_url": "", "local": False, "note": "Any service with an OpenAI-compatible API"},
@@ -73,10 +79,16 @@ NO_LIST_MESSAGE = (
 )
 
 
+def auth_headers(api_key: str | None) -> dict[str, str]:
+    """The Authorization header of a call to a model service: none for a provider that needs no account (the keyless marker), which would reject a made-up value."""
+    return {} if not api_key or api_key == KEYLESS else {"Authorization": f"Bearer {api_key}"}
+
+
 def fetch_model_ids(base_url: str, api_key: str | None, timeout: int = 20) -> list[str]:
     """The model ids a provider offers (the standard `GET {base}/models` of the OpenAI API).
     Raises NoModelList when there is no such list, and RuntimeError for any other failure."""
-    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    anonymous = not api_key or api_key == KEYLESS
+    headers = {} if anonymous else {"Authorization": f"Bearer {api_key}"}
     url = base_url.rstrip("/") + "/models"
     try:
         r = requests.get(url, headers=headers, timeout=timeout)
@@ -100,6 +112,8 @@ def fetch_model_ids(base_url: str, api_key: str | None, timeout: int = 20) -> li
     rows = data.get("data") if isinstance(data, dict) else data
     if not isinstance(rows, list):
         raise RuntimeError("The API returned an unrecognised format (not an OpenAI-style model list).")
+    if anonymous and any(isinstance(m, dict) and "isFree" in m for m in rows):
+        rows = [m for m in rows if isinstance(m, dict) and m.get("isFree") is True and "tools" in (m.get("supported_parameters") or [])]
     return sorted({str(m.get("id") if isinstance(m, dict) else m) for m in rows if (m.get("id") if isinstance(m, dict) else m)})
 
 
@@ -141,9 +155,10 @@ class ProviderStore:
 
     @staticmethod
     def _public(p: dict[str, Any]) -> dict[str, Any]:
-        needs_key = not p["local"]
+        needs_key = not p["local"] and not p.get("keyless")
         return {
-            "id": p["id"], "name": p["name"], "base_url": p["base_url"], "local": p["local"], "builtin": p["builtin"],
+            "id": p["id"], "name": p["name"], "base_url": p["base_url"], "local": p["local"], "builtin": p["builtin"], "keyless": bool(p.get("keyless")),
+            "consent": p.get("consent"),
             "has_key": bool(p.get("api_key")), "ready": bool(p.get("api_key")) or not needs_key,
         }
 
@@ -156,7 +171,12 @@ class ProviderStore:
     def credentials(self, provider_id: str) -> tuple[str, str] | None:
         """(base_url, api_key) when the provider can be used (a local one needs no key), else None."""
         p = self.get(provider_id)
-        if p is None or (not p["local"] and not p.get("api_key")):
+        if p is None:
+            return None
+        if p.get("keyless") and not p.get("api_key"):
+            # Only once the person has said yes to what is sent to the third party (consent "yes").
+            return (p["base_url"], KEYLESS) if p.get("consent") == "yes" else None
+        if not p["local"] and not p.get("api_key"):
             return None
         return p["base_url"], p.get("api_key") or "not-needed"
 
@@ -169,6 +189,21 @@ class ProviderStore:
     def local_ids(self) -> set[str]:
         return {p["id"] for p in self._all() if p["local"]}
 
+    def keyless_ids(self) -> set[str]:
+        """The providers that work without an account (Kilo): their models are free ones."""
+        return {p["id"] for p in self._all() if p.get("keyless") and not p.get("api_key")}
+
+    def set_consent(self, provider_id: str, value: str) -> dict[str, Any]:
+        """Record the answer to the consent question of a keyless provider: "yes" or "no"."""
+        with self._lock:
+            rows = self._read()
+            row = next((r for r in rows if r["id"] == provider_id), None)
+            if row is None:
+                raise KeyError(provider_id)
+            row["consent"] = value
+            self._write(rows)
+        return self._public({**row, "builtin": False, "local": bool(row.get("local"))})
+
     # -- change ------------------------------------------------------------------------------------------------
     def add(self, name: str, base_url: str, api_key: str = "", preset: str | None = None) -> dict[str, Any]:
         name = " ".join((name or "").split())[:40]
@@ -177,7 +212,8 @@ class ProviderStore:
         url = clean_base_url(base_url)
         local = is_local_url(url)
         key = (api_key or "").strip()
-        if not local and not key:
+        keyless = not key and (urlparse(url).hostname or "").lower() in KEYLESS_HOSTS
+        if not local and not key and not keyless:
             raise ValueError("This provider needs an API key")
         with self._lock:
             rows = self._read()
@@ -189,6 +225,8 @@ class ProviderStore:
             while pid in ids:
                 pid, n = f"{slug}-{n}", n + 1
             row = {"id": pid, "name": name, "base_url": url, "api_key": key, "local": local}
+            if keyless:
+                row["keyless"] = True
             self._write([*rows, row])
         return self._public({**row, "builtin": False})
 

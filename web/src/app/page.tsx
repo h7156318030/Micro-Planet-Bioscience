@@ -29,6 +29,7 @@ import { MentionMenu, activeMention } from "@/components/mention-box";
 import { FollowUps } from "@/components/followups";
 import { AskChoices } from "@/components/askchoices";
 import { ModelPicker } from "@/components/model-picker";
+import { KiloConsent } from "@/components/kilo-consent";
 import {
   cancelTask,
   createTask,
@@ -1112,6 +1113,7 @@ export default function Home() {
                   }}
                 />
               )}
+              <KiloConsent onAnswered={() => window.location.reload()} />
               <textarea
                 ref={input}
                 value={prompt}

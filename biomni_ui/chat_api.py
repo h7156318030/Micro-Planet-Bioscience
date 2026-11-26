@@ -118,6 +118,24 @@ def _explain(status: int, text: str) -> str:
     return f"{status}: {str(msg or text)[:300]}"
 
 
+FREE_TOOL_LIMIT = 30  # a free upstream model behind the keyless gateway refuses a request with 40 or more tools ("Invalid Argument"); 30 worked
+FREE_FIRST = ("bash", "python", "todo", "web_search", "read_webpage", "ask_user", "find_tools", "run_tool", "find_skills", "use_skill", "job_start", "job_status", "job_stop", "search_literature",
+              "memory_search", "library_search", "library_read", "save_paper", "list_papers", "delegate_task", "wait_subagents", "propose_memory", "update_profile", "r")
+
+
+def fit_free_tools(fn_tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The tools for a free model: at most FREE_TOOL_LIMIT, the everyday ones first, the rest in their own order after them."""
+    if len(fn_tools) <= FREE_TOOL_LIMIT:
+        return fn_tools
+
+    def name(t: dict[str, Any]) -> str:
+        return str((t.get("function") or {}).get("name") or t.get("name") or "")
+
+    rank = {n: i for i, n in enumerate(FREE_FIRST)}
+    ordered = sorted(enumerate(fn_tools), key=lambda p: (rank.get(name(p[1]), len(rank)), p[0]))
+    return [t for _, t in ordered[:FREE_TOOL_LIMIT]]
+
+
 def call_chat(base_url: str, api_key: str, model: str, instructions: str, items: list[dict[str, Any]], tools: list[dict[str, Any]],
               on_text: Callable[[str], None] | None = None, extra: dict[str, Any] | None = None, timeout: int = 600,
               client_factory: Callable[[], httpx.Client] | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -125,10 +143,14 @@ def call_chat(base_url: str, api_key: str, model: str, instructions: str, items:
     echo = ((extra or {}).get("thinking") or {}).get("type") == "enabled"
     body: dict[str, Any] = {"model": model, "messages": to_messages(instructions, items, echo), "stream": True, "stream_options": {"include_usage": True}}
     fn_tools = chat_tools(tools)
+    from biomni_ui.providers import KEYLESS, auth_headers
+
+    if api_key == KEYLESS:
+        fn_tools = fit_free_tools(fn_tools)
     if fn_tools:
         body.update(tools=fn_tools, tool_choice="auto")
     body.update(extra or {})
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "Accept": "text/event-stream"}
+    headers = {**auth_headers(api_key), "Content-Type": "application/json", "Accept": "text/event-stream"}
     url = base_url.rstrip("/") + "/chat/completions"
     t0 = time.time()
     last: Exception | None = None

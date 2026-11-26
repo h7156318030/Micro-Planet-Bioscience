@@ -110,7 +110,6 @@ While a task runs, the right-hand panels fill in: **To-do** shows the plan and t
 
 Settings is grouped into Account (Profile), Workspace (Personalisation, Projects, Models, Agent, Usage) and Data (Data and privacy). Models and providers are described in [section 7](#7-models-and-settings).
 
-![Settings page](images/09-settings.png)
 
 ---
 

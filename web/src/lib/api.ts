@@ -300,12 +300,13 @@ export const searchCatalog = (q: string, freeOnly: boolean) =>
 export const restoreModels = () => send<ModelsView & { restored: number }>("POST", "/api/models/restore");
 export const setModelEffort = (id: string, effort: string) => send<ModelsView>("PUT", `/api/models/${id}/effort`, { effort });
 
-export type Provider = { id: string; name: string; base_url: string; local: boolean; builtin: boolean; has_key: boolean; ready: boolean };
+export type Provider = { id: string; name: string; base_url: string; local: boolean; builtin: boolean; has_key: boolean; ready: boolean; keyless?: boolean; consent?: "yes" | "no" | null };
 export type ProviderPreset = { id: string; name: string; base_url: string; local: boolean; note: string };
 export const listProviders = () => get<{ providers: Provider[]; presets: ProviderPreset[] }>("/api/providers");
 export const addProvider = (b: { name: string; base_url: string; api_key: string; preset?: string }) => send<Provider>("POST", "/api/providers", b);
 export const updateProvider = (id: string, b: { name?: string; base_url?: string; api_key?: string }) => send<Provider>("PATCH", `/api/providers/${id}`, b);
 export const deleteProvider = (id: string) => send<{ ok: boolean; models_removed: number } & ModelsView>("DELETE", `/api/providers/${id}`);
+export const setProviderConsent = (id: string, value: "yes" | "no") => send<Provider>("POST", `/api/providers/${id}/consent`, { value });
 export const testProvider = (id: string) =>
   send<{ ok: boolean; listed?: boolean; count?: number; error?: string; note?: string; seconds: number }>("POST", `/api/providers/${id}/test`);
 
